@@ -1,57 +1,35 @@
+import json
 import requests
-
-API_KEY: str = "83fdb2621eb645fa8ed152414252911"  # твой ключ, можно оставить этот
-BASE_URL: str = "http://api.weatherapi.com/v1/current.json"
-
-
-def getWeather(city: str) -> str:
-    """
-    1. City name
-    2. Temperature (°C)
-    3. Condition (condition)
-    4. Humidity
-    5. Wind speed
-    """
-    if not isinstance(city, str) or len(city.strip()) == 0:
-        raise ValueError("city must be non-empty string")
-
-    params = {
-        "key": API_KEY,
-        "q": city,
-        "aqi": "no",
-    }
-
-    try:
-        resp = requests.get(BASE_URL, params=params, timeout=5)
-    except requests.RequestException as e:
-        raise RuntimeError(f"Request error: {e}") from e
-
-    try:
-        data = resp.json()
-    except ValueError as e:
-        raise RuntimeError("Bad JSON from Weather API") from e
-
-    if isinstance(data, dict) and "error" in data:
-        msg = data["error"].get("message", "Unknown API error")
-        raise ValueError(f"API error: {msg}")
-
-    location = data.get("location", {})
-    current = data.get("current", {})
-
-    city_name = location.get("name", "Unknown city")
-    country = location.get("country", "")
-
-    temp_c = current.get("temp_c", "?")
-    condition = (current.get("condition") or {}).get("text", "Unknown")
-    humidity = current.get("humidity", "?")
-    wind_kph = current.get("wind_kph", "?")
-
-    result_lines = [
-        f"City: {city_name}, {country}",
-        f"Temperature: {temp_c} °C",
-        f"Condition: {condition}",
-        f"Humidity: {humidity}%",
-        f"Wind speed: {wind_kph} kph",
+from system_rules import INNER_SYSTEM_CONTENT
+URL = "https://data.fixer.io/api/latest"
+ACCSESS_KEY = "b2d71961ebe71a300a02e73d03b6ebc8"
+def getExchangeRate(codeFrom:str, codeTo:str)->float:
+    resp = requests.get(URL, params={"access_key":ACCSESS_KEY})
+    resp.raise_for_status()
+    rates = resp.json()["rates"]
+    rateFrom = rates[codeFrom]
+    rateTo = rates[codeTo]
+    return round(rateTo / rateFrom, 2)
+    
+    
+def travelInfoProvider(countryFrom: str, countryTo: str, codeFrom: str):
+    from chat_request import chatRequest, extractJSON
+    messages: list[dict] = [
+        {"role":"system", "content": INNER_SYSTEM_CONTENT},
+        {"role":"user", "content": f"currency of {countryTo}"}
     ]
-
-    return "\n".join(result_lines)
+    resp = chatRequest(messages)
+    res =  extractJSON(resp, ["country", "currency_name","currency_code"])
+    error = None
+    try:
+        exchangeRate = getExchangeRate(codeFrom, res["currency_code"])
+    except Exception as e:
+        error = str(e)     
+      
+    
+    return json.dumps({"error":error} if error else {"countryFrom": countryFrom, "countryTo":countryTo,\
+        "codeFrom":codeFrom, "codeTo": res["currency_code"], "currencyName": res["currency_name"],"exchangeRate":exchangeRate})
+ 
+TOOLS:dict = {
+    "travelInfoProvider": travelInfoProvider
+}
